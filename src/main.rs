@@ -1,56 +1,70 @@
 use bevy::{
     prelude::*,
     reflect::{TypePath, TypeUuid},
-    render::render_resource::AsBindGroup,
+    render::render_resource::{AsBindGroup, ShaderRef}, ui::{UiMaterial, MaterialNodeBundle, UiMaterialPlugin},
 };
 
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
-        .add_plugins(MaterialPlugin::<CustomMaterial>::default())
+        .add_plugins(UiMaterialPlugin::<CustomUiMaterial>::default())
         .add_systems(Startup, startup)
-        .add_systems(Update, test)
+        .add_systems(Update, update)
         .run();
 }
 
-fn test(mut materials: ResMut<Assets<CustomMaterial>>) {
-    for (hid, material) in materials.iter_mut() {
-        material.color.set_r((material.color.r() + 0.01) % 1.0);
-    }
-}
-
 #[derive(AsBindGroup, TypeUuid, TypePath, Debug, Clone)]
-#[uuid = "f690fdae-d598-45ab-8225-97e2a3f056e0"]
-pub struct CustomMaterial {
+#[uuid = "f9c447de-9875-4962-ae25-b34b286ecc0b"]
+pub struct CustomUiMaterial {
     #[uniform(0)]
-    color: Color,
+    pub percent: f32,
 }
 
-impl Material for CustomMaterial {
-    fn fragment_shader() -> bevy::render::render_resource::ShaderRef {
-        "test/shader_test.wgsl".into()
+impl UiMaterial for CustomUiMaterial {
+    fn fragment_shader() -> ShaderRef {
+        "test/shader.wgsl".into()
     }
+
+    fn vertex_shader() -> ShaderRef {
+        "test/shader.wgsl".into()
+    }
+}
+
+fn update(
+    time: Res<Time>,
+    mut mats: ResMut<Assets<CustomUiMaterial>>,
+    query: Query<&Test>
+) {
+
+    let asset = query.single();
+    let asset_t = mats.get_mut(&asset.handle);
+    if let Some(mat) = asset_t {
+        mat.percent = mat.percent + (time.delta_seconds() / 1.0);
+        if mat.percent > 1.0 {
+            mat.percent = mat.percent - 1.0;
+        }
+    }
+
+}
+
+#[derive(Component)]
+pub struct Test {
+    handle: Handle<CustomUiMaterial>
 }
 
 fn startup(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<CustomMaterial>>,
+    mut ui_mats: ResMut<Assets<CustomUiMaterial>>
 ) {
     let font = asset_server.load("test/FiraCode-Regular.ttf");
     let image = asset_server.load("test/image.png");
-    let shader = asset_server.load("test/shader.wgsl");
     commands.spawn(Camera3dBundle {
         transform: Transform::from_xyz(-2.0, 2.5, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
         ..Default::default()
     });
-    commands.spawn(MaterialMeshBundle {
-        mesh: meshes.add(Mesh::from(shape::Cube { size: 1.0 })),
-        transform: Transform::from_xyz(2.5, 0.5, 0.0),
-        material: materials.add(CustomMaterial { color: Color::BLUE }),
-        ..default()
-    });
+    let handle = ui_mats.add(CustomUiMaterial { percent: 0.5 });
     commands
         .spawn(NodeBundle {
             style: Style {
@@ -73,15 +87,17 @@ fn startup(
                 },
                 ..default()
             });
-            parent.spawn(ShaderNodeBundle {
+            parent.spawn(MaterialNodeBundle {
                 style: Style {
                     width: Val::Px(250.0),
                     height: Val::Px(250.0),
                     ..default()
                 },
-                shader: shader.into(),
+                material: handle.clone_weak(),
                 ..default()
-            });
+            }).insert(Test {
+                handle,
+                });
             parent.spawn(TextBundle {
                 text: Text::from_section(
                     "Test Text",
